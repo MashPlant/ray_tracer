@@ -187,19 +187,18 @@ struct HitRes {
 
 // used for calculate triangle-ray hit
 // http://jcgt.org/published/0005/03/03/
-//struct TriMat {
-//  f32 m00, m01, m02, m03;
-//  f32 m10, m11, m12, m13;
-//  f32 m20, m21, m22, m23;
-//};
+struct TriMat {
+  f32 m00, m01, m02, m03;
+  f32 m10, m11, m12, m13;
+  f32 m20, m21, m22, m23;
+};
 
 struct KDNode {
   Vec3 min, max;
   union {
     struct { // leaf, len = actual len | (1 << 31)
       u32 len;
-      Vec3 pe[0];
-//      TriMat ms[0]; // also store n & uv after ms
+      TriMat ms[0]; // also store n & uv after ms
     };
     struct { // internal
       u32 ch1, sp_d;
@@ -211,16 +210,16 @@ struct KDNode {
 // "short stack" algorithm
 // http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.83.2823&rep=rep1&type=pdf
 // if col.x < 0.0, rt should contain color info(after ptr n)
-DEVICE inline bool kd_node_hit(const KDNode * __restrict__ rt, const Ray &ray, HitRes &res, u32 text, const Vec3 &col) {
+DEVICE inline bool kd_node_hit(const KDNode *__restrict__ rt, const Ray &ray, HitRes &res, u32 text, const Vec3 &col) {
   struct {
     u32 off;
     f32 t_min, t_max;
   } stk[16];
   u32 top = 0;
-  const char * __restrict__ rt_b = (const char *)rt;
+  const char *__restrict__ rt_b = (const char *) rt;
   Vec3 inv_d{1.0f / ray.d.x, 1.0f / ray.d.y, 1.0f / ray.d.z};
   f32 root_min, root_max, t_min, t_max;
-  const KDNode * __restrict__ x;
+  const KDNode *__restrict__ x;
   bool push_down, hit = false;
   if (BB_HIT_RAY_OUT(root_min, root_max, rt->min, rt->max, ray.o, inv_d)) {
     t_max = root_min;
@@ -240,45 +239,39 @@ DEVICE inline bool kd_node_hit(const KDNode * __restrict__ rt, const Ray &ray, H
       while (BB_HIT_RAY(x->min, x->max, ray.o, inv_d)) {
         if (x->len >> 31) { // leaf
           u32 len = x->len & 0x7fffffff;
-          const Vec3 * __restrict__ pe = x->pe, * __restrict__ n = pe + len;
-          const Vec2 * __restrict__ uv = (const Vec2 *)(n + len);
-          for (u32 i = 0; i < len; i += 3) {
-            Vec3 p1 = pe[i], e1 = pe[i + 1], e2 = pe[i + 2];
-            Vec3 p = ray.d.cross(e2);
-            f32 det = e1.dot(p);
-            f32 inv_det = 1.0f / det;
-            Vec3 d = ray.o - p1;
-            f32 u = d.dot(p) * inv_det;
-            if (u < 0.0f || u > 1.0f) { continue; }
-            Vec3 q = d.cross(e1);
-            f32 v = ray.d.dot(q) * inv_det;
-            if (v < 0.0f || u + v > 1.0f) { continue; };
-            f32 t = e2.dot(q) * inv_det;
-            if (t > EPS) {
-              if (t < res.t) {
-                res.t = t;
-                res.norm = n[i] * (1.0f - u - v) + n[i + 1] * u + n[i + 2] * v;
-                res.text = text;
-                if (col.x < 0.0) {
-                  res.col = (uv[i] * (1.0f - u - v) + uv[i + 1] * u + uv[i + 2] * v).to_vec3();
-                } else {
-                  res.col = col;
-                }
-                hit = true;
-              }
-              if (t < t_max) {
-                return hit;
-              }
+          const TriMat *__restrict__ ms = x->ms;
+          const Vec3 *__restrict__ n = (const Vec3 *) (ms + len);
+          const Vec2 *__restrict__ uv = (const Vec2 *) (n + len);
+          for (u32 i = 0; i < len; ++i) {
+            TriMat m = ms[i];
+            f32 dz = m.m20 * ray.d.x + m.m21 * ray.d.y + m.m22 * ray.d.z;
+            f32 oz = m.m20 * ray.o.x + m.m21 * ray.o.y + m.m22 * ray.o.z + m.m23;
+            f32 t = -oz / dz;
+            if (t < EPS || t > res.t) { continue; }
+            Vec3 hp{ray.o.x + t * ray.d.x, ray.o.y + t * ray.d.y, ray.o.z + t * ray.d.z};
+            f32 u = m.m00 * hp.x + m.m01 * hp.y + m.m02 * hp.z + m.m03;
+            f32 v = m.m10 * hp.x + m.m11 * hp.y + m.m12 * hp.z + m.m13;
+            if (u < 0.0f || v < 0.0f || u + v > 1.0f) { continue; }
+            res.t = t;
+            res.norm = n[i * 3] * (1.0f - u - v) + n[i * 3 + 1] * u + n[i * 3 + 2] * v;
+            res.text = text;
+            if (col.x < 0.0) {
+              res.col = (uv[i * 3] * (1.0f - u - v) + uv[i * 3 + 1] * u + uv[i * 3 + 2] * v).to_vec3();
+            } else {
+              res.col = col;
             }
+            hit = true;
           }
           break;
         } else { // internal
           u32 sp_d = x->sp_d;
           f32 sp = x->sp;
           f32 t_sp = (sp - ray.o[sp_d]) / ray.d[sp_d];
-          u32 fst = ((const char *)(x) - rt_b) + 24 + 12, snd = x->ch1;
+          u32 fst = ((const char *) (x) - rt_b) + 24 + 12, snd = x->ch1;
           if (ray.d[sp_d] < 0.0) {
-            u32 t = fst; fst = snd; snd = t;
+            u32 t = fst;
+            fst = snd;
+            snd = t;
           }
           if (t_sp <= t_min) {
             x = (const KDNode *) (rt_b + snd);

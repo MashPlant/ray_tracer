@@ -50,22 +50,12 @@ fn main() {
         texture: Texture::Diffuse,
       },
       Object {
-        geo: Geo::Sphere(Sphere { c: Vec3(2.70, 1.65, 4.70), r: 1.65 }),
-        color: Color::RGB(Vec3(0.999, 0.999, 0.999)),
-        texture: Texture::Specular,
-      },
-      Object {
-        geo: Geo::Sphere(Sphere { c: Vec3(7.30, 1.65, 7.8), r: 1.65 }),
-        color: Color::RGB(Vec3(0.999, 0.999, 0.999)),
-        texture: Texture::Refractive,
-      },
-      Object {
-        geo: Geo::Mesh(load::mesh("tmp/dragon.obj", Mat44::shift(3.0, 0.0, 5.0) * Mat44::scale(3.0, 3.0, 3.0)).unwrap()),
+        geo: Geo::Mesh(load::mesh("resource/dragon.obj", Mat44::shift(3.0, 0.0, 5.0) * Mat44::scale(3.0, 3.0, 3.0)).unwrap()),
         color: Color::RGB(Vec3(1.0, 1.0, 1.0)),
         texture: Texture::Refractive,
       },
       Object {
-        geo: Geo::Mesh(load::mesh("tmp/dragon.obj", Mat44::shift(7.0, 0.0, 10.0) * Mat44::scale(3.0, 3.0, 3.0)).unwrap()),
+        geo: Geo::Mesh(load::mesh("resource/dragon.obj", Mat44::shift(7.0, 0.0, 10.0) * Mat44::scale(3.0, 3.0, 3.0)).unwrap()),
         color: Color::RGB(Vec3(1.0, 1.0, 1.0)),
         texture: Texture::Refractive,
       },

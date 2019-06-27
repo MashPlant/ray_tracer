@@ -23,7 +23,7 @@ pub trait BaseFn<Ch: BaseFn<Ch>> {
   fn gen_main(this: &mut CodegenBase<Ch>, world: &World);
 
   fn gen_trace_loop(this: &mut CodegenBase<Ch>, world: &World) {
-    this.wln("for (u32 _ = 0; _ < 10; ++_) {").inc();
+    this.wln("for (u32 _ = 0; _ < 16; ++_) {").inc();
     this.wln("if (fac.len2() <= 1e-4) { return Vec3{}; }");
     this.wln("HitRes res{1e10};");
     for obj in &world.objs {
@@ -69,17 +69,13 @@ pub trait BaseFn<Ch: BaseFn<Ch>> {
         this.wln(&format!("res.norm = (ray.o + ray.d * t - {}).norm();", cpp_vec3(sphere.c)));
         this.wln(&format!("res.text = {};", Self::gen_text(obj.texture)));
         gen_color!(data, w, h, {
-            this.wln("f32 u = 0.5f + atan2f(res.norm.z, res.norm.x) / (2.0f * PI);");
-            this.wln("f32 v = 0.5f - asinf(res.norm.y) / PI;");
-            Self::gen_img(this, data, *w, *h, false);
-          });
+          this.wln("f32 u = 0.5f + atan2f(res.norm.z, res.norm.x) / (2.0f * PI);");
+          this.wln("f32 v = 0.5f - asinf(res.norm.y) / PI;");
+          Self::gen_img(this, data, *w, *h, false);
+        });
         this.dec().wln("}").dec().wln("}");
       }
       Geo::InfPlane(plane) => {
-        // temporary...
-//        if plane.p.2 == 20.0 {
-//          this.wln("if (_) {").inc();
-//        }
         this.wln(&format!("f32 dot_d_n = ray.d.dot({});", cpp_vec3(plane.n)));
         this.wln(&format!("f32 t = ({} - ray.o).dot({}) / dot_d_n;", cpp_vec3(plane.p), cpp_vec3(plane.n)));
         this.wln("if (t > EPS && t < res.t) {").inc();
@@ -96,9 +92,6 @@ pub trait BaseFn<Ch: BaseFn<Ch>> {
             Self::gen_img(this, data, *w, *h, true);
           });
         this.dec().wln("}");
-//        if plane.p.2 == 20.0 {
-//          this.dec().wln("}");
-//        }
       }
       Geo::Circle(circle) => {
         let plane = &circle.plane;
@@ -278,50 +271,92 @@ fn gen_mesh_obj(id: u32, mesh: &Mesh, object: &Object) {
           ch_ptr[2] = (ch_off >> 16 & 255) as u8;
           ch_ptr[3] = (ch_off >> 24 & 255) as u8;
         }
+        // Fast Ray-Triangle Intersections by Coordinate Transformation
+        // http://jcgt.org/published/0005/03/03/
         KDNodeKind::Leaf(idx) => {
-          let ok = idx.iter().map(|&(i, j, k)| {
+          let len_pos = f.len();
+          f.write_u32::<LittleEndian>(0).unwrap();
+          let mut len = 0u32;
+          let mut is_tri = vec![true; idx.len()];
+          for (idx, &(i, j, k)) in idx.iter().enumerate() {
             let (p1, p2, p3) = (mesh.v[i as usize], mesh.v[j as usize], mesh.v[k as usize]);
             let (e1, e2) = (p2 - p1, p3 - p1);
-            e1.cross(e2).len2() != 0.0
-          }).collect::<Box<_>>();
-          let len = ok.iter().map(|&b| if b { 1 } else { 0 }).sum::<u32>();
-
-          f.write_u32::<LittleEndian>((len * 3) | (1 << 31)).unwrap();
-          for (idx, &(i, j, k)) in idx.iter().enumerate() {
-            if ok[idx] {
-              let (p1, p2, p3) = (mesh.v[i as usize], mesh.v[j as usize], mesh.v[k as usize]);
-              let (e1, e2) = (p2 - p1, p3 - p1);
-              write_vec!(p1);
-              write_vec!(e1);
-              write_vec!(e2);
+            let mut m = [[0.0; 4]; 3];
+            let norm = e1.cross(e2);
+            if norm.0.abs() > norm.1.abs() && norm.0.abs() > norm.2.abs() {
+              m[0][0] = 0.0;
+              m[1][0] = 0.0;
+              m[2][0] = 1.0;
+              m[0][1] = e2.2 / norm.0;
+              m[1][1] = -e1.2 / norm.0;
+              m[2][1] = norm.1 / norm.0;
+              m[0][2] = -e2.1 / norm.0;
+              m[1][2] = e1.1 / norm.0;
+              m[2][2] = norm.2 / norm.0;
+              m[0][3] = p3.cross(p1).0 / norm.0;
+              m[1][3] = -p2.cross(p1).0 / norm.0;
+              m[2][3] = -p1.dot(norm) / norm.0;
+            } else if norm.1.abs() > norm.2.abs() {
+              m[0][0] = -e2.2 / norm.1;
+              m[1][0] = e1.2 / norm.1;
+              m[2][0] = norm.0 / norm.1;
+              m[0][1] = 0.0;
+              m[1][1] = 0.0;
+              m[2][1] = 1.0;
+              m[0][2] = e2.0 / norm.1;
+              m[1][2] = -e1.0 / norm.1;
+              m[2][2] = norm.2 / norm.1;
+              m[0][3] = p3.cross(p1).1 / norm.1;
+              m[1][3] = -p2.cross(p1).1 / norm.1;
+              m[2][3] = -p1.dot(norm) / norm.1;
+            } else if norm.2.abs() > 0.0 {
+              m[0][0] = e2.1 / norm.2;
+              m[1][0] = -e1.1 / norm.2;
+              m[2][0] = norm.0 / norm.2;
+              m[0][1] = -e2.0 / norm.2;
+              m[1][1] = e1.0 / norm.2;
+              m[2][1] = norm.1 / norm.2;
+              m[0][2] = 0.0;
+              m[1][2] = 0.0;
+              m[2][2] = 1.0;
+              m[0][3] = p3.cross(p1).2 / norm.2;
+              m[1][3] = -p2.cross(p1).2 / norm.2;
+              m[2][3] = -p1.dot(norm) / norm.2;
+            } // else => degenerate triangle, all 0
+            else {
+              is_tri[idx] = false;
+              continue;
+            }
+            len += 1;
+            for row in &m {
+              for &x in row {
+                f.write_f32::<LittleEndian>(x).unwrap();
+              }
             }
           }
+          let len_ptr = &mut f[len_pos..len_pos + 4];
+          let len = len | (1 << 31);
+          len_ptr[0] = (len & 255) as u8;
+          len_ptr[1] = (len >> 8 & 255) as u8;
+          len_ptr[2] = (len >> 16 & 255) as u8;
+          len_ptr[3] = (len >> 24 & 255) as u8;
           for (idx, &(i, j, k)) in idx.iter().enumerate() {
-            if ok[idx] {
-              write_vec!(mesh.norm[i as usize]);
-              write_vec!(mesh.norm[j as usize]);
-              write_vec!(mesh.norm[k as usize]);
-            }
+            if !is_tri[idx] { continue; }
+            write_vec!(mesh.norm[i as usize]);
+            write_vec!(mesh.norm[j as usize]);
+            write_vec!(mesh.norm[k as usize]);
           }
-          for (idx, &(i, j, k)) in idx.iter().enumerate() {
-            if ok[idx] {
-              write_vec2!(mesh.uv[i as usize]);
-              write_vec2!(mesh.uv[j as usize]);
-              write_vec2!(mesh.uv[k as usize]);
+          match &object.color {
+            Color::Image { data: _, w: _, h: _ } => {
+              for (idx, &(i, j, k)) in idx.iter().enumerate() {
+                if !is_tri[idx] { continue; }
+                write_vec2!(mesh.uv[i as usize]);
+                write_vec2!(mesh.uv[j as usize]);
+                write_vec2!(mesh.uv[k as usize]);
+              }
             }
+            _ => {}
           }
-//          match (&object.color, &object.geo) {
-//            (Color::Image { data: _, w: _, h: _ }, _) | (_, Geo::RotateBezier(_)) => {
-//              for (idx, &(i, j, k)) in idx.iter().enumerate() {
-//                if ok[idx] {
-//                  write_vec2!(mesh.uv[i as usize]);
-//                  write_vec2!(mesh.uv[j as usize]);
-//                  write_vec2!(mesh.uv[k as usize]);
-//                }
-//              }
-//            }
-//            _ => {}
-//          }
         }
       }
       ret
@@ -721,7 +756,6 @@ impl BaseFn<PPMCodeGen> for PPMCodeGen {
     for obj in &world.objs {
       Self::gen_geo(this, obj);
     }
-//    if (p.x < -EPS || p.y < -EPS || p.z < -EPS || p.x > 20 || p.y > 20 || p.z > 20) { return; }
     this.wln(&format!(r#"if (res.t == 1e10) {{ break; }}
     Vec3 p = ray.o + ray.d * res.t;
     if (p.x < {} - EPS || p.y < {} - EPS || p.z < {} - EPS || p.x > {} + EPS || p.y > {} + EPS || p.z > {} + EPS) {{ return; }}
