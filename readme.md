@@ -4,13 +4,17 @@
 报告和渲染结果见report文件夹，渲染所用资源见resource文件夹。
 
 
-展示一下我最喜欢的两张图：
+展示一下我比较喜欢的几张图，为了节省流量都转成了jpg，而且尺寸也缩小了，完整的png在report文件夹里
 
 
-![](./report/finalr.png)
+![](./readme_pic/finalr.jpg)
 
+![](./readme_pic/finalb.jpg)
 
-![](./report/heart_water.png)
+![](./readme_pic/aperture_dragon1.jpg)
 
-带色散的心还不够完善，等我找个时间再跑个好一点的。
+![](./readme_pic/heart_water.jpg)
 
+![](./readme_pic/heart_dispersion1.jpg)
+
+光谱连续的色散哦
